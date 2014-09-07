@@ -10,6 +10,20 @@ CREATE_TABLE_STMT = "CREATE TABLE t1 (c1 integer, c2 text)"
 CREATE_STMT = "CREATE INDEX t1_idx ON t1 (c1)"
 COMMENT_STMT = "COMMENT ON INDEX t1_idx IS 'Test index t1_idx'"
 
+CREATE_TABLE_HOLIDAY_STMT = """\
+CREATE TABLE holiday (
+    id serial PRIMARY KEY,
+    date date NOT NULL,
+    recurring boolean NOT NULL
+)"""
+
+CREATE_HOLYDAY_STMT = """\
+CREATE UNIQUE INDEX unique_date ON holiday ((
+CASE
+    WHEN recurring THEN (0)::double precision
+    ELSE date_part('year'::text, date)
+END), date_part('month'::text, date), date_part('day'::text, date))
+"""
 
 class IndexToMapTestCase(DatabaseToMapTestCase):
     """Test mapping of created indexes"""
@@ -143,6 +157,19 @@ class IndexToMapTestCase(DatabaseToMapTestCase):
         dbmap = self.to_map([CREATE_TABLE_STMT, CREATE_STMT, COMMENT_STMT])
         assert dbmap['schema public']['table t1']['indexes']['t1_idx'][
             'description'] == 'Test index t1_idx'
+
+    def test_bug_98(self):
+        "Map a multicol index with expressions"
+        dbmap = self.to_map([CREATE_TABLE_HOLIDAY_STMT, CREATE_HOLYDAY_STMT])
+        idx = dbmap['schema public']['table holiday']['indexes']['unique_date']
+        assert idx == {
+            'keys': [
+                {"(\nCASE\n    WHEN recurring THEN (0)::double precision\n"
+                 "    ELSE date_part('year'::text, date)\nEND)":
+                    {'type': 'expression'}},
+                {"date_part('month'::text, date)": {'type': 'expression'}},
+                {"date_part('day'::text, date)": {'type': 'expression'}}],
+            'unique': True}
 
 
 class IndexToSqlTestCase(InputMapToSqlTestCase):
